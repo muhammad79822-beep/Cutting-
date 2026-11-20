@@ -106,12 +106,13 @@ $("go").onclick=()=>{
  P.forEach((p,i)=>{for(let j=0;j<(p.q|0);j++)if(p.w>0&&p.h>0)list.push({n:p.n||"#"+(i+1),w:p.w,h:p.h,c:i})});
  if(!list.length){out.innerHTML='<div class="card err">أضف قطعة واحدة على الأقل</div>';return}
  const r=pack(W,H,k,$("rot").checked,list);
+ window.LR={r,u};
  let html="";
  if(r.bad.length)html+=`<div class="card err">قطع أكبر من اللوح ولم تُحسب: ${[...new Set(r.bad.map(b=>b.n+" ("+b.w+"×"+b.h+")"))].join("، ")}</div>`;
  const tot=r.sheets.length*W*H;
  const used=r.sheets.reduce((a,s)=>a+s.items.reduce((b,i)=>b+i.w*i.h,0),0);
  const wp=tot?((1-used/tot)*100).toFixed(1):0;
- html+=`<div class="card"><h2>النتيجة</h2><div class="sum"><span>عدد الألواح: <b>${r.sheets.length}</b></span><span>الهالك: <b>${wp}%</b></span><span>القطع: <b>${list.length-r.bad.length}</b></span></div><button class="b np" onclick="savePDF()">📄 حفظ كـ PDF</button></div>`;
+ html+=`<div class="card"><h2>النتيجة</h2><div class="sum"><span>عدد الألواح: <b>${r.sheets.length}</b></span><span>الهالك: <b>${wp}%</b></span><span>القطع: <b>${list.length-r.bad.length}</b></span></div><button class="b np" onclick="saveImg()">🖼️ حفظ كصورة</button></div>`;
  r.sheets.forEach((s,i)=>{
   const fs=Math.max(Math.min(W,H)/18,1);
   let svg=`<svg viewBox="-2 -2 ${W+4} ${H+4}" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="h${i}" width="${fs*0.7}" height="${fs*0.7}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="${fs*0.7}" height="${fs*0.7}" fill="var(--waste)"/><line x1="0" y1="0" x2="0" y2="${fs*0.7}" stroke="#888" stroke-width="${fs/14}"/></pattern></defs><rect x="0" y="0" width="${W}" height="${H}" fill="url(#h${i})" stroke="var(--line)" stroke-width="${fs/8}"/>`;
@@ -129,6 +130,7 @@ async function savePDF(){
  try{
   const cards=[...document.querySelectorAll("#out svg")].map(s=>s.closest(".card"));
   if(!cards.length)return;
+  $("pdfbox").innerHTML='<p>جاري إنشاء الملف...</p>';
   const J=[];
   for(const c of cards){
    const svg=c.querySelector("svg").cloneNode(true);
@@ -159,9 +161,58 @@ async function savePDF(){
   const xr=pdf.length;
   pdf+=`xref\n0 ${offs.length+1}\n0000000000 65535 f \n`+offs.map(o=>String(o).padStart(10,"0")+" 00000 n \n").join("")+`trailer<</Size ${offs.length+1}/Root 1 0 R>>\nstartxref\n${xr}\n%%EOF`;
   const f=new File([Uint8Array.from(pdf,c=>c.charCodeAt(0))],"cutting.pdf",{type:"application/pdf"});
-  try{if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f]});return}}catch(e){if(e&&e.name==="AbortError")return}
-  const a=document.createElement("a");a.href=URL.createObjectURL(f);a.download="cutting.pdf";document.body.appendChild(a);a.click();a.remove();
+  const url=URL.createObjectURL(f);
+  const lk='display:block;text-align:center;text-decoration:none;padding:12px;border-radius:10px;font-weight:600;margin-top:6px;';
+  $("pdfbox").innerHTML=`<p>✅ الملف جاهز</p><a href="${url}" target="_blank" download="cutting.pdf" style="${lk}background:var(--pri);color:var(--prt)">فتح / تحميل الملف</a>`+((navigator.canShare&&navigator.canShare({files:[f]}))?`<button class="b s" id="shr">مشاركة الملف</button>`:"");
+  const sb=$("shr");if(sb)sb.onclick=async()=>{try{await navigator.share({files:[f]})}catch(e){}};
  }catch(e){alert("تعذر إنشاء PDF: "+e.message)}
+}
+
+function ov(html){
+ let o=$("ov");if(!o){o=document.createElement("div");o.id="ov";o.className="np";
+  o.style.cssText="position:fixed;inset:0;z-index:99;background:var(--bg);overflow:auto;padding:calc(12px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px));max-width:720px;margin-inline:auto";
+  document.body.appendChild(o)}
+ o.innerHTML='<button class="b s" onclick="document.getElementById(\'ov\').remove()">✕ إغلاق</button>'+html;
+ o.scrollTop=0;
+}
+async function saveImg(){
+ ov("<p>جاري تجهيز الصور...</p>");
+ try{
+  const cards=[...document.querySelectorAll("#out svg")].map(s=>s.closest(".card"));
+  let h='<p>اضغط مطولًا على أي صورة ثم اختر <b>حفظ الصورة</b> (أو خد سكرين شوت).</p>';
+  for(const c of cards){
+   const svg=c.querySelector("svg").cloneNode(true);
+   const vb=svg.getAttribute("viewBox").split(" ").map(Number);
+   const cw=1600,ch=Math.round(cw*vb[3]/vb[2]);
+   svg.setAttribute("width",cw);svg.setAttribute("height",ch);
+   const x=new XMLSerializer().serializeToString(svg).replace(/var\(--waste\)/g,"#e9ecef").replace(/var\(--line\)/g,"#555");
+   const img=new Image();
+   await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(x)});
+   const cv=document.createElement("canvas");cv.width=cw;cv.height=ch+110;
+   const g=cv.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,cv.width,cv.height);
+   g.fillStyle="#000";g.font="bold 44px Arial,Tahoma,sans-serif";g.textAlign="center";
+   const t=c.querySelector("h2").textContent;
+   g.fillText(t,cw/2,70);g.drawImage(img,0,110,cw,ch);
+   const url=cv.toDataURL("image/png");
+   h+=`<div class="card"><img src="${url}" style="width:100%;display:block" alt="${t}"><a href="${url}" download="cutting.png" style="display:block;text-align:center;padding:10px;color:var(--pri)">تحميل الصورة</a></div>`;
+  }
+  ov(h);
+ }catch(e){ov("<p class='err'>تعذر إنشاء الصور: "+e.message+"</p>")}
+}
+function showTxt(){
+ if(!window.LR)return;
+ const {r,u}=window.LR;let t="";
+ r.sheets.forEach((s,i)=>{
+  t+=`لوح ${i+1} (${u})\n`;
+  [...s.items].sort((a,b)=>a.y-b.y||a.x-b.x).forEach(it=>{
+   t+=`- ${it.p.n}: ${it.w}×${it.h} | من اليسار ${+it.x.toFixed(2)} ومن الأعلى ${+it.y.toFixed(2)}\n`;
+  });
+  t+="\n";
+ });
+ if(r.bad.length)t+="قطع لم تدخل: "+r.bad.map(b=>b.n).join("، ")+"\n";
+ ov('<textarea id="tx" readonly style="width:100%;height:55vh;font-size:15px;direction:rtl"></textarea><button class="b" id="cp">نسخ النص</button>');
+ const ta=$("tx");ta.value=t;
+ $("cp").onclick=async()=>{try{await navigator.clipboard.writeText(t)}catch(e){ta.select();try{document.execCommand("copy")}catch(_){}}$("cp").textContent="تم النسخ ✅"};
 }
 draw();
 </script>
